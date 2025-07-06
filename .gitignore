@@ -1,0 +1,118 @@
+# Build directories and artifacts
+Builds/
+build/
+cmake-build-*/
+*_artefacts/
+*.build/
+DerivedData/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+*.ko
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Xcode
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.xcuserstate
+*.xcworkspace/
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcuserstate
+*.xcscmblueprint
+
+# Visual Studio
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vs/
+*.vcxproj.filters
+*.vcxproj.user
+
+# JetBrains
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# JUCE specific
+JuceLibraryCode/
+**/JuceLibraryCode/
+
+# Binary data (generated)
+juce_binarydata_*/
+BinaryData.h
+BinaryData*.cpp
+
+# But keep the source assets
+!Resources/
+!Assets/ 
