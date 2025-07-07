@@ -28,6 +28,12 @@ namespace HarmonsterLayout
     static constexpr int PINCH_X = 185;  // 105 + 80 = 185  
     static constexpr int OUTPUT_X = 265; // 185 + 80 = 265
     static constexpr int KNOBS_Y = KNOBS_TOP_MARGIN;
+    
+    // Footswitch button positioning (aligned with power button in background image)
+    static constexpr int FOOTSWITCH_WIDTH = 70;
+    static constexpr int FOOTSWITCH_HEIGHT = 70;
+    static constexpr int FOOTSWITCH_X = (PLUGIN_WIDTH - FOOTSWITCH_WIDTH) / 2.05;  // Center horizontally
+    static constexpr int FOOTSWITCH_Y = PLUGIN_HEIGHT - 175;  // Moved up to align with background power button
 }
 
 //==============================================================================
@@ -43,6 +49,8 @@ public:
 
     void drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
                      int buttonX, int buttonY, int buttonW, int buttonH, juce::ComboBox& box) override;
+                     
+    void drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown) override;
 };
 
 //==============================================================================
@@ -71,11 +79,14 @@ private:
     juce::Slider pinchSlider;
     juce::Slider outputSlider;
     
+    juce::ToggleButton footswitchButton;
+    
     // Parameter attachments
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> eqAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> snarlAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> pinchAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> outputAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> footswitchAttachment;
 
     WoolyMammothAudioProcessor& audioProcessor;
     WoolyLookAndFeel woolyLF;

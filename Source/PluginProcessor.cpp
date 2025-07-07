@@ -18,13 +18,15 @@ WoolyMammothAudioProcessor::WoolyMammothAudioProcessor()
         std::make_unique<juce::AudioParameterFloat> ("wool", "Wool", 0.0f, 1.0f, 0.5f),
         std::make_unique<juce::AudioParameterFloat> ("pinch", "Pinch", 0.0f, 1.0f, 0.3f),
         std::make_unique<juce::AudioParameterFloat> ("eq", "EQ", 0.0f, 1.0f, 0.5f),
-        std::make_unique<juce::AudioParameterFloat> ("output", "Output", 0.0f, 1.0f, 0.5f)
+        std::make_unique<juce::AudioParameterFloat> ("output", "Output", 0.0f, 1.0f, 0.5f),
+        std::make_unique<juce::AudioParameterBool> ("bypass", "Bypass", false)
     })
 {
     woolParam = parameters.getRawParameterValue ("wool");
     pinchParam = parameters.getRawParameterValue ("pinch");
     eqParam = parameters.getRawParameterValue ("eq");
     outputParam = parameters.getRawParameterValue ("output");
+    bypassParam = parameters.getRawParameterValue ("bypass");
 }
 
 WoolyMammothAudioProcessor::~WoolyMammothAudioProcessor()
@@ -56,6 +58,15 @@ void WoolyMammothAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     // Clear unused output channels
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
+
+    // Check if bypassed
+    bool isBypassed = bypassParam->load() > 0.5f;
+    
+    if (isBypassed)
+    {
+        // Bypass - pass audio through unchanged
+        return;
+    }
 
     // Update DSP parameters
     for (auto& dsp : mammothDSP)

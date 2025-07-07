@@ -44,6 +44,7 @@ private:
     std::atomic<float>* pinchParam = nullptr;
     std::atomic<float>* eqParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
+    std::atomic<float>* bypassParam = nullptr;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WoolyMammothAudioProcessor)
 };
