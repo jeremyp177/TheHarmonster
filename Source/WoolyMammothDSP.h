@@ -4,8 +4,8 @@
 #include <array>
 
 //==============================================================================
-// Accurate ZVEX Woolly Mammoth Circuit Emulation
-// Based on the actual schematic: 2N3904 transistors with proper bias modeling
+// Simplified ZVEX Woolly Mammoth Circuit Emulation
+// This is a working baseline that we can build upon
 //==============================================================================
 
 class WoolyMammothDSP
@@ -16,6 +16,10 @@ public:
     void setSampleRate(double newSampleRate)
     {
         sampleRate = newSampleRate;
+        
+        // Initialize simple anti-aliasing filter
+        initializeAntiAliasingFilter();
+        
         updateFilterCoefficients();
         reset();
     }
@@ -39,6 +43,15 @@ public:
         
         // Reset DC blocking
         dc_block_in = dc_block_out = 0.0;
+        
+        // Reset anti-aliasing filter
+        antiAlias_x1 = antiAlias_x2 = 0.0;
+        antiAlias_y1 = antiAlias_y2 = 0.0;
+        
+        // Reset supply sag modeling
+        current_supply_voltage = nominal_supply_voltage;
+        supply_sag_filter = 0.0;
+        average_current_draw = 0.0;
     }
     
     void setWool(double value)
@@ -75,11 +88,20 @@ public:
         // Input DC blocking
         double dc_blocked = dcBlockingFilter(input);
         
+        // Estimate current consumption from input signal level
+        double instantaneous_current = std::abs(dc_blocked) * 0.02;  // Scale factor for current estimation
+        
+        // Update average current draw with smoothing
+        average_current_draw = average_current_draw * 0.999 + instantaneous_current * 0.001;
+        
+        // Calculate supply voltage with sag
+        double supply_voltage = calculateSupplySag(average_current_draw + instantaneous_current * 0.1);
+        
         // C1 coupling capacitor (220nF) - AC coupling to Q1
         double c1_coupled = acCouplingFilter(dc_blocked, c1_voltage, 0.999);
         
-        // Q1 transistor stage (2N3904) - first amplification
-        double q1_out = transistorQ1(c1_coupled);
+        // Q1 transistor stage (2N3904) - first amplification with supply-dependent bias
+        double q1_out = transistorQ1(c1_coupled, supply_voltage);
         
         // Apply WOOL bass roll-off before Q2 (this is where it affects the circuit)
         double wool_filtered = woolBassFilter(q1_out);
@@ -87,8 +109,8 @@ public:
         // C2 coupling capacitor (10nF) - AC coupling to Q2
         double c2_coupled = acCouplingFilter(wool_filtered, c2_voltage, 0.995);
         
-        // Q2 transistor stage (2N3904) - main fuzz with bias control (PINCH)
-        double q2_out = transistorQ2(c2_coupled);
+        // Q2 transistor stage (2N3904) - main fuzz with bias control (PINCH) and supply effects
+        double q2_out = transistorQ2(c2_coupled, supply_voltage);
         
         // C6 coupling capacitor (10nF) - AC coupling to output
         double c6_coupled = acCouplingFilter(q2_out, c6_voltage, 0.995);
@@ -96,8 +118,12 @@ public:
         // EQ passive tone control (post-fuzz)
         double eq_shaped = eqToneControl(c6_coupled);
         
-        // Final output gain
-        double final_out = eq_shaped * output_gain;
+        // Anti-aliasing filter to reduce high-frequency artifacts from nonlinear processing
+        double anti_aliased = antiAliasingFilter(eq_shaped);
+        
+        // Final output gain (also affected by supply voltage)
+        double supply_gain_factor = supply_voltage / nominal_supply_voltage;  // Lower supply = lower output
+        double final_out = anti_aliased * output_gain * supply_gain_factor;
         
         // Soft limiting to prevent harsh digital clipping
         return softLimit(final_out);
@@ -117,6 +143,14 @@ private:
     double wool_cutoff = 200.0;
     double eq_cutoff = 2000.0;
     
+    // Supply sag modeling
+    static constexpr double nominal_supply_voltage = 9.0;  // Fresh 9V battery
+    static constexpr double minimum_supply_voltage = 6.0;  // Dead battery threshold
+    static constexpr double battery_internal_resistance = 2.5;  // Ohms (varies with battery age)
+    double current_supply_voltage = nominal_supply_voltage;
+    double supply_sag_filter = 0.0;  // For supply voltage smoothing
+    double average_current_draw = 0.0;  // Running average of current consumption
+    
     // Circuit state variables
     double q1_collector = 0.0, q1_base = 0.0, q1_emitter = 0.0;
     double q2_collector = 0.0, q2_base = 0.0, q2_emitter = 0.0;
@@ -133,6 +167,53 @@ private:
     
     // DC blocking
     double dc_block_in = 0.0, dc_block_out = 0.0;
+    
+    // Anti-aliasing filter states
+    double antiAlias_x1 = 0.0, antiAlias_x2 = 0.0;
+    double antiAlias_y1 = 0.0, antiAlias_y2 = 0.0;
+    double antiAlias_b0 = 1.0, antiAlias_b1 = 0.0, antiAlias_b2 = 0.0;
+    double antiAlias_a1 = 0.0, antiAlias_a2 = 0.0;
+    
+    void initializeAntiAliasingFilter()
+    {
+        // Design a simple 2nd-order Butterworth low-pass filter
+        // Cutoff at about 80% of Nyquist to prevent aliasing
+        double cutoff = sampleRate * 0.4;  // 40% of sample rate
+        double omega = 2.0 * M_PI * cutoff / sampleRate;
+        double cos_omega = std::cos(omega);
+        double sin_omega = std::sin(omega);
+        double alpha = sin_omega / (2.0 * 0.707);  // Q = 0.707 for Butterworth
+        
+        // Low-pass biquad coefficients
+        antiAlias_b0 = (1.0 - cos_omega) / 2.0;
+        antiAlias_b1 = 1.0 - cos_omega;
+        antiAlias_b2 = (1.0 - cos_omega) / 2.0;
+        double a0 = 1.0 + alpha;
+        antiAlias_a1 = -2.0 * cos_omega;
+        antiAlias_a2 = 1.0 - alpha;
+        
+        // Normalize coefficients
+        antiAlias_b0 /= a0;
+        antiAlias_b1 /= a0;
+        antiAlias_b2 /= a0;
+        antiAlias_a1 /= a0;
+        antiAlias_a2 /= a0;
+    }
+    
+    double antiAliasingFilter(double input)
+    {
+        // Direct Form II biquad filter
+        double result = antiAlias_b0 * input + antiAlias_b1 * antiAlias_x1 + antiAlias_b2 * antiAlias_x2 
+                       - antiAlias_a1 * antiAlias_y1 - antiAlias_a2 * antiAlias_y2;
+        
+        // Update history
+        antiAlias_x2 = antiAlias_x1;
+        antiAlias_x1 = input;
+        antiAlias_y2 = antiAlias_y1;
+        antiAlias_y1 = result;
+        
+        return result;
+    }
     
     void updateFilterCoefficients()
     {
@@ -161,30 +242,58 @@ private:
         return input - capacitor_voltage;
     }
     
-    double transistorQ1(double input)
+    double transistorQ1(double input, double supply_voltage)
     {
-        // Q1 (2N3904) - First transistor stage
-        // Moderate gain, sets up signal for Q2
+        // Q1 (2N3904) - First transistor stage with enhanced modeling
+        // More realistic than simple clipping but simpler than full Ebers-Moll
         
-        // Base current (input signal affects bias)
-        q1_base = input + q1_bias;
+        // Supply voltage affects bias point and available headroom
+        double supply_factor = supply_voltage / nominal_supply_voltage;
+        double bias_adjustment = (1.0 - supply_factor) * 0.3;  // Lower supply = shifted bias
         
-        // Collector current (amplified and clipped)
-        double gain = 8.0;  // Moderate gain for first stage
-        double collector_current = q1_base * gain;
+        // Base-emitter voltage with input signal and supply-dependent bias
+        double vbe = input + (q1_bias * 0.7 - bias_adjustment);
         
-        // Transistor saturation modeling
-        if (collector_current > 1.0) {
-            collector_current = 1.0 + (collector_current - 1.0) * 0.1;  // Soft saturation
-        } else if (collector_current < -0.8) {
-            collector_current = -0.8 + (collector_current + 0.8) * 0.1;  // Asymmetrical
+        // Enhanced collector current modeling with supply effects
+        double base_gain = 8.0 * supply_factor;  // Gain reduces with supply voltage
+        
+        // Simulate temperature and bias effects on gain
+        double thermal_factor = 1.0 + (vbe - 0.7) * 0.1;
+        double effective_gain = base_gain * thermal_factor;
+        
+        // Base collector current before saturation
+        double ic_linear = vbe * effective_gain;
+        
+        // Supply-dependent saturation modeling
+        double saturation_level = 1.2 * supply_factor;  // Lower supply = earlier saturation
+        double compression_factor = 0.8 + (1.0 - supply_factor) * 0.3;  // Softer compression when supply sags
+        
+        // Soft compression with supply effects
+        double ic_compressed = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
+        
+        // Supply-dependent asymmetry (more pronounced with low supply)
+        double asymmetry_factor = 1.0 + (1.0 - supply_factor) * 0.2;
+        if (ic_compressed > 0.0) {
+            ic_compressed *= (0.95 + (1.0 - supply_factor) * 0.1);  // Positive compression varies with supply
+        } else {
+            ic_compressed *= (1.1 * asymmetry_factor);  // Negative compression more affected by supply
+            ic_compressed = std::max(ic_compressed, -0.9 * supply_factor);  // Clamp based on supply
         }
         
-        // Add some nonlinear distortion characteristic of BJT
-        collector_current += collector_current * collector_current * collector_current * 0.05;
+        // Add realistic BJT nonlinearity (affected by supply voltage)
+        double harmonic_strength = 0.03 * supply_factor;  // Weaker harmonics with low supply
+        double harmonic_content = ic_compressed * ic_compressed * harmonic_strength;
+        ic_compressed += harmonic_content;
         
-        q1_collector = collector_current;
-        return collector_current;
+        // Collector-emitter saturation with supply effects
+        double vce_sat = 0.2 + (1.0 - supply_factor) * 0.15;  // Vce_sat increases with lower supply
+        if (std::abs(ic_compressed) > 0.8 * supply_factor) {
+            double sat_factor = 1.0 - (std::abs(ic_compressed) - 0.8 * supply_factor) * 2.5;
+            ic_compressed *= std::max(sat_factor, vce_sat);
+        }
+        
+        q1_collector = ic_compressed;
+        return ic_compressed;
     }
     
     double woolBassFilter(double input)
@@ -198,68 +307,115 @@ private:
         return input - wool_filter_z1;  // High-pass response
     }
     
-    double transistorQ2(double input)
+    double transistorQ2(double input, double supply_voltage)
     {
-        // Q2 (2N3904) - Main fuzz transistor with bias control (PINCH)
-        // This is where the characteristic gated fuzz happens
+        // Q2 (2N3904) - Main fuzz transistor with enhanced bias control modeling
+        // This stage creates the characteristic Woolly Mammoth gated fuzz
         
-        // Base current with bias control from PINCH
-        q2_base = input + (q2_bias_level * 0.8);  // Bias point controlled by PINCH
+        // Supply voltage significantly affects Q2 behavior (fuzz stage more sensitive)
+        double supply_factor = supply_voltage / nominal_supply_voltage;
+        double supply_bias_shift = (1.0 - supply_factor) * 0.4;  // More bias shift in fuzz stage
         
-        // When bias is starved (high PINCH), transistor cuts off with low signals
-        double bias_threshold = q2_bias_level * 0.5;
-        double input_level = std::abs(input);
+        // Base-emitter voltage with bias control from PINCH and supply effects
+        double bias_voltage = q2_bias_level * 0.8 - supply_bias_shift;
+        double vbe = input + bias_voltage;
         
-        // Transistor cutoff behavior when bias is starved
+        // Enhanced gating behavior based on bias starvation AND supply voltage
+        double effective_bias_level = q2_bias_level * supply_factor;  // Supply sag affects apparent bias
+        double bias_threshold = effective_bias_level * 0.6;
+        double input_amplitude = std::abs(input);
+        
+        // Transistor activity based on bias point and supply (creates more complex gating)
         double transistor_activity = 1.0;
-        if (input_level < bias_threshold) {
-            // Transistor starts to cut off - creates the gated effect
-            transistor_activity = input_level / bias_threshold;
-            transistor_activity = transistor_activity * transistor_activity;  // Sharper cutoff
+        if (input_amplitude < bias_threshold) {
+            transistor_activity = std::pow(input_amplitude / bias_threshold, 1.5);
+            transistor_activity = std::clamp(transistor_activity, 0.01, 1.0);
         }
         
-        // Main amplification with heavy fuzz characteristics
-        double gain = 20.0 * transistor_activity;  // Gain depends on transistor activity
-        double collector_current = q2_base * gain;
+        // Supply sag makes gating more prominent
+        transistor_activity *= (0.8 + supply_factor * 0.2);
         
-        // Hard clipping characteristic of overdriven transistor
-        if (collector_current > 0.4) {
-            collector_current = 0.4 + (collector_current - 0.4) * 0.02;  // Hard clipping
-        } else if (collector_current < -0.3) {
-            collector_current = -0.3 + (collector_current + 0.3) * 0.01;  // Asymmetrical hard clipping
+        // Base gain modulated by transistor activity, bias point, and supply
+        double base_gain = 25.0 * supply_factor;  // Gain drops significantly with supply
+        double bias_gain_factor = 0.5 + effective_bias_level * 1.5;
+        double effective_gain = base_gain * transistor_activity * bias_gain_factor;
+        
+        // Temperature effects enhanced by supply conditions
+        double thermal_factor = 1.0 + (1.0 - effective_bias_level) * 0.3 * (2.0 - supply_factor);
+        effective_gain *= thermal_factor;
+        
+        // Collector current with enhanced modeling
+        double ic_linear = vbe * effective_gain;
+        
+        // Supply-dependent saturation (very sensitive to supply voltage)
+        double saturation_level = 0.6 * supply_factor;  // Much lower saturation with supply sag
+        double compression_factor = 0.4 + (1.0 - supply_factor) * 0.3;  // Softer when supply sags
+        
+        // Asymmetric fuzz saturation with supply effects
+        double ic_saturated;
+        if (ic_linear > 0.0) {
+            ic_saturated = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
+        } else {
+            // Negative clipping much more affected by supply sag
+            double neg_compression = compression_factor * (0.6 + supply_factor * 0.4);
+            ic_saturated = -saturation_level * 0.7 * std::tanh(-ic_linear / (saturation_level * neg_compression));
         }
         
-        // Add fuzz harmonic distortion
-        collector_current = addFuzzHarmonics(collector_current);
+        // Add fuzz harmonic distortion with supply-dependent character
+        ic_saturated = addEnhancedFuzzHarmonics(ic_saturated, transistor_activity, supply_factor);
         
-        // Apply the gated effect when transistor is starved
-        if (transistor_activity < 0.8) {
-            // Add some noise/instability when gating
-            double noise_factor = 0.95 + 0.05 * std::sin(input_level * 200.0);
-            collector_current *= noise_factor;
+        // Supply sag increases instability and affects bias instability
+        if (transistor_activity < 0.3) {
+            double supply_instability_factor = 1.0 + (1.0 - supply_factor) * 0.5;  // More instability with low supply
+            double instability = 0.02 * supply_instability_factor * 
+                                std::sin(input_amplitude * 180.0 + effective_bias_level * 50.0);
+            ic_saturated += instability * (0.3 - transistor_activity);
         }
         
-        q2_collector = collector_current;
-        return collector_current;
+        // Collector-emitter saturation with supply effects (very pronounced)
+        if (std::abs(ic_saturated) > 0.5 * supply_factor) {
+            double vce_sat = 0.15 + (1.0 - supply_factor) * 0.2;  // Vce_sat much higher with supply sag
+            double sat_compression = 1.0 - (std::abs(ic_saturated) - 0.5 * supply_factor) * 2.0;
+            ic_saturated *= std::max(sat_compression, vce_sat);
+        }
+        
+        q2_collector = ic_saturated;
+        return ic_saturated;
     }
     
-    double addFuzzHarmonics(double input)
+    double addEnhancedFuzzHarmonics(double input, double transistor_activity, double supply_factor)
     {
-        // Add the characteristic fuzz harmonics and texture
+        // Enhanced harmonic generation that responds to transistor operating point AND supply voltage
         
-        // Asymmetrical waveshaping (creates even harmonics)
         double shaped = input;
+        
+        // Asymmetrical waveshaping that varies with bias and supply
+        double positive_compression = 1.8 + transistor_activity * 0.5 * supply_factor;
+        double negative_compression = 2.5 - transistor_activity * 0.3 * supply_factor;
+        
         if (shaped > 0.0) {
-            shaped = shaped / (1.0 + shaped * 2.0);  // Softer positive clipping
+            shaped = shaped / (1.0 + shaped * positive_compression);
         } else {
-            shaped = shaped / (1.0 - shaped * 3.0);  // Harder negative clipping
+            shaped = shaped / (1.0 - shaped * negative_compression);
         }
         
-        // Add some high-frequency fuzz texture
-        shaped += shaped * std::sin(shaped * 50.0) * 0.1;
+        // Supply-dependent harmonic content (more harmonics with supply sag)
+        double harmonic_strength = 0.08 + (1.0 - transistor_activity) * 0.04 + (1.0 - supply_factor) * 0.03;
         
-        // Light bit crushing for digital fuzz character
-        double bit_depth = 64.0;  // Not too extreme
+        // Second harmonic (even-order distortion) - affected by supply
+        shaped += shaped * shaped * harmonic_strength * supply_factor;
+        
+        // Third harmonic (odd-order distortion) - more prominent with supply sag
+        shaped += shaped * shaped * shaped * harmonic_strength * 0.5 * (2.0 - supply_factor);
+        
+        // High-frequency fuzz texture varies with both operating point and supply
+        double hf_texture_freq = 45.0 + transistor_activity * 30.0 - (1.0 - supply_factor) * 15.0;
+        double hf_texture_amount = 0.06 + (1.0 - transistor_activity) * 0.08 + (1.0 - supply_factor) * 0.04;
+        shaped += shaped * std::sin(shaped * hf_texture_freq) * hf_texture_amount;
+        
+        // Supply-dependent bit crushing (more artifacts with low supply)
+        double bit_depth = 48.0 + transistor_activity * 32.0 - (1.0 - supply_factor) * 16.0;
+        bit_depth = std::max(bit_depth, 16.0);  // Don't go too low
         shaped = std::round(shaped * bit_depth) / bit_depth;
         
         return shaped;
@@ -288,6 +444,25 @@ private:
     {
         // Soft limiting to prevent harsh digital clipping
         return std::tanh(input * 0.9) * 0.95;
+    }
+
+    double calculateSupplySag(double current_load)
+    {
+        // Simulate supply voltage sagging due to internal resistance and load
+        // This is a simplified model. A more accurate simulation would involve
+        // a battery model and load changes over time.
+        
+        // Calculate the voltage drop across the internal resistance
+        double voltage_drop = current_load * battery_internal_resistance;
+        
+        // Apply a smoothing filter to the voltage drop to prevent sudden changes
+        supply_sag_filter = supply_sag_filter * 0.99 + voltage_drop * 0.01;
+        
+        // The actual supply voltage is the nominal voltage minus the smoothed voltage drop
+        double supply_voltage = nominal_supply_voltage - supply_sag_filter;
+        
+        // Ensure the supply voltage doesn't drop below the minimum threshold
+        return std::max(supply_voltage, minimum_supply_voltage);
     }
 };
 
