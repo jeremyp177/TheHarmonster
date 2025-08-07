@@ -24,11 +24,12 @@ public:
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
 
-    int getNumPrograms() override { return 1; }
-    int getCurrentProgram() override { return 0; }
-    void setCurrentProgram (int index) override { }
-    const juce::String getProgramName (int index) override { return {}; }
-    void changeProgramName (int index, const juce::String& newName) override { }
+    // Preset/Program management - Updated to support factory presets
+    int getNumPrograms() override;
+    int getCurrentProgram() override;
+    void setCurrentProgram (int index) override;
+    const juce::String getProgramName (int index) override;
+    void changeProgramName (int index, const juce::String& newName) override;
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
@@ -45,6 +46,14 @@ private:
     std::atomic<float>* eqParam = nullptr;
     std::atomic<float>* outputParam = nullptr;
     std::atomic<float>* bypassParam = nullptr;
+
+    // Preset management
+    int currentPresetIndex = 0;
+    std::vector<WoolyMammothPresets::Preset> factoryPresets;
+    
+    // Helper methods for preset management
+    void loadPreset(int index);
+    void initializeFactoryPresets();
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (WoolyMammothAudioProcessor)
 };

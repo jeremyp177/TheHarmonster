@@ -27,6 +27,9 @@ WoolyMammothAudioProcessor::WoolyMammothAudioProcessor()
     eqParam = parameters.getRawParameterValue ("eq");
     outputParam = parameters.getRawParameterValue ("output");
     bypassParam = parameters.getRawParameterValue ("bypass");
+    
+    // Initialize factory presets
+    initializeFactoryPresets();
 }
 
 WoolyMammothAudioProcessor::~WoolyMammothAudioProcessor()
@@ -97,9 +100,49 @@ juce::AudioProcessorEditor* WoolyMammothAudioProcessor::createEditor()
 }
 
 //==============================================================================
+// Preset/Program management implementation
+int WoolyMammothAudioProcessor::getNumPrograms()
+{
+    return static_cast<int>(factoryPresets.size());
+}
+
+int WoolyMammothAudioProcessor::getCurrentProgram()
+{
+    return currentPresetIndex;
+}
+
+void WoolyMammothAudioProcessor::setCurrentProgram(int index)
+{
+    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+    {
+        currentPresetIndex = index;
+        loadPreset(index);
+    }
+}
+
+const juce::String WoolyMammothAudioProcessor::getProgramName(int index)
+{
+    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+        return factoryPresets[index].name;
+    return "Unknown";
+}
+
+void WoolyMammothAudioProcessor::changeProgramName(int index, const juce::String& newName)
+{
+    // For factory presets, we don't allow name changes
+    // This could be extended to support user presets in the future
+    (void)index;
+    (void)newName;
+}
+
+//==============================================================================
 void WoolyMammothAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
+    
+    // Add current preset index to the state
+    state.setProperty("currentPreset", currentPresetIndex, nullptr);
+    
     std::unique_ptr<juce::XmlElement> xml (state.createXml());
     copyXmlToBinary (*xml, destData);
 }
@@ -108,8 +151,54 @@ void WoolyMammothAudioProcessor::setStateInformation (const void* data, int size
 {
     std::unique_ptr<juce::XmlElement> xmlState (getXmlFromBinary (data, sizeInBytes));
     if (xmlState.get() != nullptr)
+    {
         if (xmlState->hasTagName (parameters.state.getType()))
-            parameters.replaceState (juce::ValueTree::fromXml (*xmlState));
+        {
+            auto newState = juce::ValueTree::fromXml (*xmlState);
+            parameters.replaceState (newState);
+            
+            // Restore current preset index
+            if (newState.hasProperty("currentPreset"))
+            {
+                currentPresetIndex = newState.getProperty("currentPreset", 0);
+                currentPresetIndex = juce::jlimit(0, static_cast<int>(factoryPresets.size()) - 1, currentPresetIndex);
+            }
+        }
+    }
+}
+
+//==============================================================================
+// Preset management helper methods
+void WoolyMammothAudioProcessor::initializeFactoryPresets()
+{
+    factoryPresets = WoolyMammothPresets::getFactoryPresets();
+    
+    // Load the first preset by default
+    if (!factoryPresets.empty())
+    {
+        loadPreset(0);
+    }
+}
+
+void WoolyMammothAudioProcessor::loadPreset(int index)
+{
+    if (index >= 0 && index < static_cast<int>(factoryPresets.size()))
+    {
+        const auto& preset = factoryPresets[index];
+        
+        // Update parameter values
+        if (auto* woolParamObj = parameters.getParameter("wool"))
+            woolParamObj->setValueNotifyingHost(static_cast<float>(preset.wool));
+            
+        if (auto* pinchParamObj = parameters.getParameter("pinch"))
+            pinchParamObj->setValueNotifyingHost(static_cast<float>(preset.pinch));
+            
+        if (auto* eqParamObj = parameters.getParameter("eq"))
+            eqParamObj->setValueNotifyingHost(static_cast<float>(preset.eq));
+            
+        if (auto* outputParamObj = parameters.getParameter("output"))
+            outputParamObj->setValueNotifyingHost(static_cast<float>(preset.output));
+    }
 }
 
 //==============================================================================

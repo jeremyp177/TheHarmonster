@@ -14,26 +14,26 @@ namespace HarmonsterLayout
     static constexpr int PLUGIN_WIDTH = 360;
     static constexpr int PLUGIN_HEIGHT = 540;
     
-    // Knob positioning (4 knobs arranged horizontally under the labels)
-    static constexpr int KNOB_WIDTH = 70;
-    static constexpr int KNOB_HEIGHT = 70;
+    // Knob positioning - smaller knobs for better fit
+    static constexpr int KNOB_WIDTH = 65;  // Reduced from 70 for better spacing
+    static constexpr int KNOB_HEIGHT = 65; // Reduced from 70 for better spacing
     static constexpr int LABEL_HEIGHT = 20;
     
-    // Perfectly calculated spacing for 4 smaller knobs across 360px width
-    static constexpr int KNOBS_TOP_MARGIN = 83;  // Adjusted for smaller knobs
+    // LIVE-TUNING: Einfach diese Werte ändern für schnelle Anpassungen
+    static constexpr int KNOBS_TOP_MARGIN = 78;  // ↕️ Vertikale Position aller Knöpfe
     
-    // Individual knob positions calculated for better distribution with smaller knobs
-    static constexpr int EQ_X = 25;      // More left margin for better centering
-    static constexpr int SNARL_X = 105;  // 25 + 80 = 105
-    static constexpr int PINCH_X = 185;  // 105 + 80 = 185  
-    static constexpr int OUTPUT_X = 265; // 185 + 80 = 265
+    // 🎛️ EINZELNE KNOPF-POSITIONEN (einfach änderbar):
+    static constexpr int EQ_X = 40;      // 🎚️ EQ Knopf X-Position
+    static constexpr int SNARL_X = 110;  // 🎚️ SNARL Knopf X-Position  
+    static constexpr int PINCH_X = 180;  // 🎚️ PINCH Knopf X-Position
+    static constexpr int OUTPUT_X = 255; // 🎚️ OUTPUT Knopf X-Position
     static constexpr int KNOBS_Y = KNOBS_TOP_MARGIN;
     
     // Footswitch button positioning (aligned with power button in background image)
     static constexpr int FOOTSWITCH_WIDTH = 70;
     static constexpr int FOOTSWITCH_HEIGHT = 70;
-    static constexpr int FOOTSWITCH_X = (PLUGIN_WIDTH - FOOTSWITCH_WIDTH) / 2.05;  // Center horizontally
-    static constexpr int FOOTSWITCH_Y = PLUGIN_HEIGHT - 175;  // Moved up to align with background power button
+    static constexpr int FOOTSWITCH_X = (PLUGIN_WIDTH - FOOTSWITCH_WIDTH) / 2;  // Center horizontally
+    static constexpr int FOOTSWITCH_Y = PLUGIN_HEIGHT - 155;  // Aligned with background power button
 }
 
 //==============================================================================
@@ -72,7 +72,7 @@ private:
     void comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged) override;
     
     // UI Components
-    juce::Label titleLabel;
+    // Title label removed - included in new background image
     
     juce::Slider eqSlider;
     juce::Slider snarlSlider;

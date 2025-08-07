@@ -4,8 +4,8 @@
 #include <array>
 
 //==============================================================================
-// Simplified ZVEX Woolly Mammoth Circuit Emulation
-// This is a working baseline that we can build upon
+// Clean ZVEX Woolly Mammoth Circuit Emulation
+// Based on original but with minimal changes to prevent cutouts
 //==============================================================================
 
 class WoolyMammothDSP
@@ -52,6 +52,9 @@ public:
         current_supply_voltage = nominal_supply_voltage;
         supply_sag_filter = 0.0;
         average_current_draw = 0.0;
+        
+        // Reset smooth gating (only addition to prevent cutouts)
+        gating_smoother = 1.0;
     }
     
     void setWool(double value)
@@ -66,7 +69,8 @@ public:
         // PINCH (500k linear) - controls Q2 bias, creates gated/starved effect
         pinch = std::clamp(value, 0.0, 1.0);
         // Higher pinch = more bias starvation = more gating
-        q2_bias_level = 0.1 + (1.0 - pinch) * 0.7;  // 0.1 to 0.8 bias range
+        // SMALL CHANGE: Slightly less extreme range to prevent total cutouts
+        q2_bias_level = 0.15 + (1.0 - pinch) * 0.65;  // 0.15 to 0.8 bias range (was 0.1 to 0.8)
     }
     
     void setEQ(double value)
@@ -78,18 +82,21 @@ public:
     
     void setOutput(double value)
     {
-        // OUTPUT (10k linear) - final volume control
+        // OUTPUT (10k linear) - final volume control with good range
         output = std::clamp(value, 0.0, 1.0);
-        output_gain = 0.2 + (output * 2.0);  // 0.2 to 2.2 gain range
+        output_gain = 0.2 + (output * 3.0);  // More reasonable range: 0.2 to 3.2 gain
     }
     
     double process(double input)
     {
+        // MASSIVE INPUT OVERDRIVE STAGE - Built-in aggressive pre-saturation
+        double overdriven_input = aggressiveInputOverdrive(input);
+        
         // Input DC blocking
-        double dc_blocked = dcBlockingFilter(input);
+        double dc_blocked = dcBlockingFilter(overdriven_input);
         
         // Estimate current consumption from input signal level
-        double instantaneous_current = std::abs(dc_blocked) * 0.02;  // Scale factor for current estimation
+        double instantaneous_current = std::abs(dc_blocked) * 0.02;
         
         // Update average current draw with smoothing
         average_current_draw = average_current_draw * 0.999 + instantaneous_current * 0.001;
@@ -106,11 +113,14 @@ public:
         // Apply WOOL bass roll-off before Q2 (this is where it affects the circuit)
         double wool_filtered = woolBassFilter(q1_out);
         
+        // ADDITIONAL OVERDRIVE between Q1 and Q2 for maximum aggression
+        double inter_stage_overdrive = interStageOverdrive(wool_filtered);
+        
         // C2 coupling capacitor (10nF) - AC coupling to Q2
-        double c2_coupled = acCouplingFilter(wool_filtered, c2_voltage, 0.995);
+        double c2_coupled = acCouplingFilter(inter_stage_overdrive, c2_voltage, 0.995);
         
         // Q2 transistor stage (2N3904) - main fuzz with bias control (PINCH) and supply effects
-        double q2_out = transistorQ2(c2_coupled, supply_voltage);
+        double q2_out = transistorQ2Improved(c2_coupled, supply_voltage);
         
         // C6 coupling capacitor (10nF) - AC coupling to output
         double c6_coupled = acCouplingFilter(q2_out, c6_voltage, 0.995);
@@ -122,11 +132,11 @@ public:
         double anti_aliased = antiAliasingFilter(eq_shaped);
         
         // Final output gain (also affected by supply voltage)
-        double supply_gain_factor = supply_voltage / nominal_supply_voltage;  // Lower supply = lower output
+        double supply_gain_factor = supply_voltage / nominal_supply_voltage;
         double final_out = anti_aliased * output_gain * supply_gain_factor;
         
-        // Soft limiting to prevent harsh digital clipping
-        return softLimit(final_out);
+        // Enhanced soft limiting with more aggressive character
+        return aggressiveSoftLimit(final_out);
     }
 
 private:
@@ -173,6 +183,66 @@ private:
     double antiAlias_y1 = 0.0, antiAlias_y2 = 0.0;
     double antiAlias_b0 = 1.0, antiAlias_b1 = 0.0, antiAlias_b2 = 0.0;
     double antiAlias_a1 = 0.0, antiAlias_a2 = 0.0;
+    
+    // ONLY ADDITION: Simple gating smoother to prevent cutouts
+    double gating_smoother = 1.0;
+    
+    // NEW: Moderate input overdrive stage - more musical
+    double aggressiveInputOverdrive(double input)
+    {
+        // Moderate input boost and saturation - musical overdrive
+        
+        // Stage 1: Reasonable input gain boost
+        double boosted = input * 3.5;  // Reduced from 8.0 to 3.5
+        
+        // Stage 2: Softer asymmetric clipping
+        double clipped;
+        if (boosted > 0.0) {
+            clipped = 0.9 * std::tanh(boosted * 1.5);  // Softer positive clipping
+        } else {
+            clipped = 0.8 * std::tanh(boosted * 1.8);  // Moderate negative clipping
+        }
+        
+        // Stage 3: Moderate harmonic distortion
+        double squared = clipped * clipped;
+        clipped += squared * 0.15;  // Reduced harmonic content
+        
+        // Stage 4: Skip bit crushing - too harsh
+        
+        // Stage 5: Gentle final saturation
+        clipped = std::tanh(clipped * 1.2) * 0.85;  // Gentler final stage
+        
+        return clipped;
+    }
+    
+    // REMOVED: Inter-stage overdrive - was too much
+    double interStageOverdrive(double input)
+    {
+        // Just a gentle boost instead of aggressive overdrive
+        return input * 1.3;  // Simple 1.3x boost instead of complex overdrive
+    }
+    
+    // NEW: More reasonable soft limiting
+    double aggressiveSoftLimit(double input)
+    {
+        // Moderate limiting with character but not extreme
+        
+        // Stage 1: Gentle compression
+        double compressed = input / (1.0 + std::abs(input) * 0.5);
+        
+        // Stage 2: Moderate asymmetric saturation
+        double limited;
+        if (compressed > 0.0) {
+            limited = 0.9 * std::tanh(compressed * 1.8);
+        } else {
+            limited = 0.85 * std::tanh(compressed * 2.0);
+        }
+        
+        // Stage 3: Add subtle harmonics
+        limited += limited * limited * 0.04;  // Gentle harmonic enhancement
+        
+        return limited;
+    }
     
     void initializeAntiAliasingFilter()
     {
@@ -244,51 +314,61 @@ private:
     
     double transistorQ1(double input, double supply_voltage)
     {
-        // Q1 (2N3904) - First transistor stage with enhanced modeling
-        // More realistic than simple clipping but simpler than full Ebers-Moll
+        // Q1 (2N3904) - First transistor stage with ENHANCED OVERDRIVE
+        // Much more aggressive for authentic Woolly Mammoth character
         
         // Supply voltage affects bias point and available headroom
         double supply_factor = supply_voltage / nominal_supply_voltage;
-        double bias_adjustment = (1.0 - supply_factor) * 0.3;  // Lower supply = shifted bias
+        double bias_adjustment = (1.0 - supply_factor) * 0.3;
         
         // Base-emitter voltage with input signal and supply-dependent bias
         double vbe = input + (q1_bias * 0.7 - bias_adjustment);
         
-        // Enhanced collector current modeling with supply effects
-        double base_gain = 8.0 * supply_factor;  // Gain reduces with supply voltage
+        // MODERATE GAIN for good overdrive character
+        double base_gain = 18.0 * supply_factor;  // Reduced from 25.0 to 18.0 - more reasonable
         
-        // Simulate temperature and bias effects on gain
-        double thermal_factor = 1.0 + (vbe - 0.7) * 0.1;
+        // Enhanced thermal effects for more saturation
+        double thermal_factor = 1.0 + (vbe - 0.7) * 0.2;  // Increased from 0.1
         double effective_gain = base_gain * thermal_factor;
         
         // Base collector current before saturation
         double ic_linear = vbe * effective_gain;
         
-        // Supply-dependent saturation modeling
-        double saturation_level = 1.2 * supply_factor;  // Lower supply = earlier saturation
-        double compression_factor = 0.8 + (1.0 - supply_factor) * 0.3;  // Softer compression when supply sags
+        // MORE AGGRESSIVE SATURATION for overdrive character
+        double saturation_level = 0.9 * supply_factor;  // Reduced from 1.2 for earlier saturation
+        double compression_factor = 0.6 + (1.0 - supply_factor) * 0.2;  // More aggressive compression
         
-        // Soft compression with supply effects
-        double ic_compressed = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
-        
-        // Supply-dependent asymmetry (more pronounced with low supply)
-        double asymmetry_factor = 1.0 + (1.0 - supply_factor) * 0.2;
-        if (ic_compressed > 0.0) {
-            ic_compressed *= (0.95 + (1.0 - supply_factor) * 0.1);  // Positive compression varies with supply
+        // Enhanced saturation curve for more overdrive
+        double ic_compressed;
+        if (std::abs(ic_linear) > saturation_level * 0.3) {
+            // Multi-stage compression for more character
+            double stage1 = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
+            double stage2 = stage1 / (1.0 + std::abs(stage1) * 0.5);  // Additional compression stage
+            ic_compressed = stage2;
         } else {
-            ic_compressed *= (1.1 * asymmetry_factor);  // Negative compression more affected by supply
-            ic_compressed = std::max(ic_compressed, -0.9 * supply_factor);  // Clamp based on supply
+            ic_compressed = ic_linear;  // Linear region
         }
         
-        // Add realistic BJT nonlinearity (affected by supply voltage)
-        double harmonic_strength = 0.03 * supply_factor;  // Weaker harmonics with low supply
-        double harmonic_content = ic_compressed * ic_compressed * harmonic_strength;
-        ic_compressed += harmonic_content;
+        // ENHANCED ASYMMETRY for more character
+        double asymmetry_factor = 1.2 + (1.0 - supply_factor) * 0.3;  // Increased asymmetry
+        if (ic_compressed > 0.0) {
+            ic_compressed *= (0.9 + (1.0 - supply_factor) * 0.2);  // More positive compression
+        } else {
+            ic_compressed *= (1.2 * asymmetry_factor);  // Much more negative compression
+            ic_compressed = std::max(ic_compressed, -0.8 * supply_factor);
+        }
         
-        // Collector-emitter saturation with supply effects
-        double vce_sat = 0.2 + (1.0 - supply_factor) * 0.15;  // Vce_sat increases with lower supply
-        if (std::abs(ic_compressed) > 0.8 * supply_factor) {
-            double sat_factor = 1.0 - (std::abs(ic_compressed) - 0.8 * supply_factor) * 2.5;
+        // INCREASED HARMONIC CONTENT for overdrive character
+        double harmonic_strength = 0.08 * supply_factor;  // Increased from 0.03
+        double harmonic_content = ic_compressed * ic_compressed * harmonic_strength;
+        // Add third harmonic for more overdrive character
+        double third_harmonic = ic_compressed * ic_compressed * ic_compressed * harmonic_strength * 0.3;
+        ic_compressed += harmonic_content + third_harmonic;
+        
+        // Earlier collector-emitter saturation for more overdrive
+        if (std::abs(ic_compressed) > 0.6 * supply_factor) {  // Reduced from 0.8
+            double vce_sat = 0.25 + (1.0 - supply_factor) * 0.2;
+            double sat_factor = 1.0 - (std::abs(ic_compressed) - 0.6 * supply_factor) * 3.0;  // More aggressive
             ic_compressed *= std::max(sat_factor, vce_sat);
         }
         
@@ -307,21 +387,22 @@ private:
         return input - wool_filter_z1;  // High-pass response
     }
     
-    double transistorQ2(double input, double supply_voltage)
+    // IMPROVED VERSION: Enhanced overdrive character with minimal changes to prevent cutouts
+    double transistorQ2Improved(double input, double supply_voltage)
     {
-        // Q2 (2N3904) - Main fuzz transistor with enhanced bias control modeling
-        // This stage creates the characteristic Woolly Mammoth gated fuzz
+        // Q2 (2N3904) - Main fuzz transistor with MAXIMUM OVERDRIVE CHARACTER
+        // This stage creates the characteristic Woolly Mammoth heavy fuzz
         
         // Supply voltage significantly affects Q2 behavior (fuzz stage more sensitive)
         double supply_factor = supply_voltage / nominal_supply_voltage;
-        double supply_bias_shift = (1.0 - supply_factor) * 0.4;  // More bias shift in fuzz stage
+        double supply_bias_shift = (1.0 - supply_factor) * 0.4;
         
         // Base-emitter voltage with bias control from PINCH and supply effects
         double bias_voltage = q2_bias_level * 0.8 - supply_bias_shift;
         double vbe = input + bias_voltage;
         
         // Enhanced gating behavior based on bias starvation AND supply voltage
-        double effective_bias_level = q2_bias_level * supply_factor;  // Supply sag affects apparent bias
+        double effective_bias_level = q2_bias_level * supply_factor;
         double bias_threshold = effective_bias_level * 0.6;
         double input_amplitude = std::abs(input);
         
@@ -329,53 +410,62 @@ private:
         double transistor_activity = 1.0;
         if (input_amplitude < bias_threshold) {
             transistor_activity = std::pow(input_amplitude / bias_threshold, 1.5);
-            transistor_activity = std::clamp(transistor_activity, 0.01, 1.0);
+            transistor_activity = std::clamp(transistor_activity, 0.05, 1.0);  // Prevent complete cutouts
         }
         
         // Supply sag makes gating more prominent
         transistor_activity *= (0.8 + supply_factor * 0.2);
         
-        // Base gain modulated by transistor activity, bias point, and supply
-        double base_gain = 25.0 * supply_factor;  // Gain drops significantly with supply
-        double bias_gain_factor = 0.5 + effective_bias_level * 1.5;
-        double effective_gain = base_gain * transistor_activity * bias_gain_factor;
+        // Smooth the gating to prevent abrupt changes
+        gating_smoother = gating_smoother * 0.98 + transistor_activity * 0.02;
+        double smoothed_activity = gating_smoother;
         
-        // Temperature effects enhanced by supply conditions
-        double thermal_factor = 1.0 + (1.0 - effective_bias_level) * 0.3 * (2.0 - supply_factor);
+        // STRONG GAIN for heavy fuzz character but not extreme
+        double base_gain = 50.0 * supply_factor;  // Reduced from 60.0 to 50.0 - still aggressive but more musical
+        double bias_gain_factor = 0.3 + effective_bias_level * 2.0;  // More dramatic bias effects
+        double effective_gain = base_gain * smoothed_activity * bias_gain_factor;
+        
+        // Enhanced temperature effects for more aggressive behavior
+        double thermal_factor = 1.0 + (1.0 - effective_bias_level) * 0.5 * (2.0 - supply_factor);  // More aggressive
         effective_gain *= thermal_factor;
         
         // Collector current with enhanced modeling
         double ic_linear = vbe * effective_gain;
         
-        // Supply-dependent saturation (very sensitive to supply voltage)
-        double saturation_level = 0.6 * supply_factor;  // Much lower saturation with supply sag
-        double compression_factor = 0.4 + (1.0 - supply_factor) * 0.3;  // Softer when supply sags
+        // MUCH MORE AGGRESSIVE SATURATION for heavy fuzz
+        double saturation_level = 0.4 * supply_factor;  // Reduced from 0.6 for earlier, harder saturation
+        double compression_factor = 0.25 + (1.0 - supply_factor) * 0.2;  // Much more aggressive compression
         
-        // Asymmetric fuzz saturation with supply effects
+        // Multi-stage fuzz saturation with supply effects
         double ic_saturated;
         if (ic_linear > 0.0) {
-            ic_saturated = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
+            // Positive saturation with multiple compression stages
+            double stage1 = saturation_level * std::tanh(ic_linear / (saturation_level * compression_factor));
+            double stage2 = stage1 / (1.0 + stage1 * stage1 * 2.0);  // Additional fuzz compression
+            ic_saturated = stage2;
         } else {
-            // Negative clipping much more affected by supply sag
-            double neg_compression = compression_factor * (0.6 + supply_factor * 0.4);
-            ic_saturated = -saturation_level * 0.7 * std::tanh(-ic_linear / (saturation_level * neg_compression));
+            // Negative clipping much more affected by supply sag and more aggressive
+            double neg_compression = compression_factor * (0.4 + supply_factor * 0.3);  // More aggressive
+            double stage1 = -saturation_level * 0.6 * std::tanh(-ic_linear / (saturation_level * neg_compression));
+            double stage2 = stage1 / (1.0 + std::abs(stage1) * 1.5);  // Additional compression
+            ic_saturated = stage2;
         }
         
-        // Add fuzz harmonic distortion with supply-dependent character
-        ic_saturated = addEnhancedFuzzHarmonics(ic_saturated, transistor_activity, supply_factor);
+        // ENHANCED FUZZ HARMONIC GENERATION for maximum character
+        ic_saturated = addAggressiveFuzzHarmonics(ic_saturated, smoothed_activity, supply_factor);
         
-        // Supply sag increases instability and affects bias instability
-        if (transistor_activity < 0.3) {
-            double supply_instability_factor = 1.0 + (1.0 - supply_factor) * 0.5;  // More instability with low supply
-            double instability = 0.02 * supply_instability_factor * 
-                                std::sin(input_amplitude * 180.0 + effective_bias_level * 50.0);
-            ic_saturated += instability * (0.3 - transistor_activity);
+        // More subtle instability effects (no rattling)
+        if (smoothed_activity < 0.3) {
+            double supply_instability_factor = 1.0 + (1.0 - supply_factor) * 0.3;
+            double instability = 0.008 * supply_instability_factor *  // Reduced for no rattling
+                                std::sin(input_amplitude * 120.0 + effective_bias_level * 40.0);
+            ic_saturated += instability * (0.3 - smoothed_activity) * 0.3;
         }
         
-        // Collector-emitter saturation with supply effects (very pronounced)
-        if (std::abs(ic_saturated) > 0.5 * supply_factor) {
-            double vce_sat = 0.15 + (1.0 - supply_factor) * 0.2;  // Vce_sat much higher with supply sag
-            double sat_compression = 1.0 - (std::abs(ic_saturated) - 0.5 * supply_factor) * 2.0;
+        // Earlier collector-emitter saturation for more fuzz
+        if (std::abs(ic_saturated) > 0.3 * supply_factor) {  // Much earlier saturation
+            double vce_sat = 0.2 + (1.0 - supply_factor) * 0.25;
+            double sat_compression = 1.0 - (std::abs(ic_saturated) - 0.3 * supply_factor) * 3.0;  // More aggressive
             ic_saturated *= std::max(sat_compression, vce_sat);
         }
         
@@ -385,13 +475,13 @@ private:
     
     double addEnhancedFuzzHarmonics(double input, double transistor_activity, double supply_factor)
     {
-        // Enhanced harmonic generation that responds to transistor operating point AND supply voltage
+        // MODERATE harmonic generation for musical overdrive character
         
         double shaped = input;
         
-        // Asymmetrical waveshaping that varies with bias and supply
-        double positive_compression = 1.8 + transistor_activity * 0.5 * supply_factor;
-        double negative_compression = 2.5 - transistor_activity * 0.3 * supply_factor;
+        // Gentler asymmetrical waveshaping
+        double positive_compression = 1.6 + transistor_activity * 0.6 * supply_factor;  // Reduced aggression
+        double negative_compression = 2.2 - transistor_activity * 0.4 * supply_factor;  // More moderate
         
         if (shaped > 0.0) {
             shaped = shaped / (1.0 + shaped * positive_compression);
@@ -399,23 +489,68 @@ private:
             shaped = shaped / (1.0 - shaped * negative_compression);
         }
         
-        // Supply-dependent harmonic content (more harmonics with supply sag)
-        double harmonic_strength = 0.08 + (1.0 - transistor_activity) * 0.04 + (1.0 - supply_factor) * 0.03;
+        // Moderate harmonic content for musical character
+        double harmonic_strength = 0.1 + (1.0 - transistor_activity) * 0.06 + (1.0 - supply_factor) * 0.04;  // Reduced
         
-        // Second harmonic (even-order distortion) - affected by supply
+        // Moderate second harmonic for warmth
         shaped += shaped * shaped * harmonic_strength * supply_factor;
         
-        // Third harmonic (odd-order distortion) - more prominent with supply sag
-        shaped += shaped * shaped * shaped * harmonic_strength * 0.5 * (2.0 - supply_factor);
+        // Gentle third harmonic for character
+        shaped += shaped * shaped * shaped * harmonic_strength * 0.6 * (2.0 - supply_factor);
         
-        // High-frequency fuzz texture varies with both operating point and supply
-        double hf_texture_freq = 45.0 + transistor_activity * 30.0 - (1.0 - supply_factor) * 15.0;
-        double hf_texture_amount = 0.06 + (1.0 - transistor_activity) * 0.08 + (1.0 - supply_factor) * 0.04;
+        // Reduced high-frequency fuzz texture
+        double hf_texture_freq = 40.0 + transistor_activity * 30.0 - (1.0 - supply_factor) * 15.0;
+        double hf_texture_amount = 0.06 + (1.0 - transistor_activity) * 0.08 + (1.0 - supply_factor) * 0.05;  // Reduced
         shaped += shaped * std::sin(shaped * hf_texture_freq) * hf_texture_amount;
         
-        // Supply-dependent bit crushing (more artifacts with low supply)
-        double bit_depth = 48.0 + transistor_activity * 32.0 - (1.0 - supply_factor) * 16.0;
-        bit_depth = std::max(bit_depth, 16.0);  // Don't go too low
+        // Less aggressive bit crushing
+        double bit_depth = 48.0 + transistor_activity * 24.0 - (1.0 - supply_factor) * 12.0;  // Higher bit depth
+        bit_depth = std::max(bit_depth, 20.0);  // Higher minimum for less harshness
+        shaped = std::round(shaped * bit_depth) / bit_depth;
+        
+        return shaped;
+    }
+    
+    // MODERATE: Fuzz harmonics for Q2 stage - musical but characterful
+    double addAggressiveFuzzHarmonics(double input, double transistor_activity, double supply_factor)
+    {
+        // Strong fuzz character but more musical than extreme
+        
+        double shaped = input;
+        
+        // Moderate waveshaping for fuzz
+        double drive_factor = 1.8 + (1.0 - transistor_activity) * 1.0;  // Reduced drive
+        shaped = shaped / (1.0 + std::abs(shaped) * drive_factor);
+        
+        // Balanced harmonic generation
+        double base_strength = 0.12 + (1.0 - transistor_activity) * 0.08;  // Reduced from 0.2
+        
+        // Strong but musical second harmonic
+        shaped += shaped * shaped * base_strength * 1.5;
+        
+        // Moderate third harmonic for fuzz edge
+        shaped += shaped * shaped * shaped * base_strength * 1.0;
+        
+        // Skip fifth harmonic - was too complex
+        
+        // Simplified intermodulation
+        static double im_delay = 0.0;
+        im_delay = im_delay * 0.95 + shaped * 0.05;
+        shaped += shaped * im_delay * 0.04;  // Reduced from 0.08
+        
+        // Gentler crossover distortion
+        if (std::abs(shaped) < 0.12) {
+            shaped *= 0.7 + 0.3 * transistor_activity;
+        }
+        
+        // Moderate high-frequency saturation
+        double hf_sat_freq = 30.0 + transistor_activity * 15.0;  // Reduced frequency
+        double hf_sat_amount = 0.06 * (1.3 - transistor_activity);  // Reduced amount
+        shaped += shaped * std::sin(shaped * hf_sat_freq) * hf_sat_amount;
+        
+        // Less aggressive bit reduction
+        double bit_depth = 32.0 + transistor_activity * 16.0;  // Higher bit depth
+        bit_depth = std::max(bit_depth, 16.0);  // Higher minimum
         shaped = std::round(shaped * bit_depth) / bit_depth;
         
         return shaped;
@@ -438,12 +573,6 @@ private:
         
         // EQ blend: CCW = more bass, CW = more treble
         return bass_response * (1.0 - eq) + treble_response * eq * 0.7;
-    }
-    
-    double softLimit(double input)
-    {
-        // Soft limiting to prevent harsh digital clipping
-        return std::tanh(input * 0.9) * 0.95;
     }
 
     double calculateSupplySag(double current_load)
@@ -493,7 +622,8 @@ public:
             {"Smooth Fuzz", 0.5, 0.2, 0.6, 0.8, "Less gated, more sustained fuzz"},
             {"Sputtery Gate", 0.3, 0.7, 0.2, 0.6, "Unstable gated fuzz sputter"},
             {"Mild Mammoth", 0.4, 0.3, 0.5, 0.7, "Tamed but still fuzzy"},
-            {"Extreme Pinch", 0.5, 1.0, 0.3, 0.4, "Maximum bias starvation"}
+            {"Extreme Pinch", 0.5, 1.0, 0.3, 0.4, "Maximum bias starvation"},
+            {"Midnight Mass", 1.0, 0.84, 0.64, 0.5, "Aggressively gated, ripping fuzz"}
         };
     }
 };

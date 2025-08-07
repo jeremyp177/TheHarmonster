@@ -19,14 +19,16 @@ WoolyLookAndFeel::WoolyLookAndFeel()
 void WoolyLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height, float sliderPos,
                      const float rotaryStartAngle, const float rotaryEndAngle, juce::Slider& slider)
 {
+    (void)slider; // Suppress unused parameter warning
+    
     auto bounds = juce::Rectangle<int>(x, y, width, height).toFloat();
     auto centre = bounds.getCentre();
     
     // Fix the angle calculation - this was backwards before
     auto angle = rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
     
-    // Load the knob image from BinaryData
-    auto knobImage = juce::ImageCache::getFromMemory(BinaryData::knob_png, BinaryData::knob_pngSize);
+    // Load the custom knob image from BinaryData
+    auto knobImage = juce::ImageCache::getFromMemory(BinaryData::harmonster_custom_knob_png, BinaryData::harmonster_custom_knob_pngSize);
     
     if (knobImage.isValid())
     {
@@ -75,6 +77,9 @@ void WoolyLookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int wid
 void WoolyLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bool isButtonDown,
                  int buttonX, int buttonY, int buttonW, int buttonH, juce::ComboBox& box)
 {
+    (void)isButtonDown; // Suppress unused parameter warning
+    (void)box; // Suppress unused parameter warning
+    
     // Draw outer shadow for depth
     g.setColour(juce::Colour(0x60000000));
     g.fillRoundedRectangle(1, 1, width - 1, height - 1, 6.0f);
@@ -151,136 +156,37 @@ void WoolyLookAndFeel::drawComboBox(juce::Graphics& g, int width, int height, bo
 
 void WoolyLookAndFeel::drawToggleButton(juce::Graphics& g, juce::ToggleButton& button, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
 {
-    auto bounds = button.getLocalBounds().toFloat();
-    auto centre = bounds.getCentre();
-    auto radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.0f - 2.0f;
+    (void)shouldDrawButtonAsHighlighted; // Suppress unused parameter warning
+    (void)shouldDrawButtonAsDown; // Suppress unused parameter warning
     
+    auto bounds = button.getLocalBounds().toFloat();
     bool isOn = button.getToggleState();
     
-    // Real guitar pedal footswitch design - button appearance doesn't change with state
+    // Load the appropriate power button image based on state
+    auto buttonImage = isOn ? 
+        juce::ImageCache::getFromMemory(BinaryData::poweron_png, BinaryData::poweron_pngSize) :
+        juce::ImageCache::getFromMemory(BinaryData::poweroff_png, BinaryData::poweroff_pngSize);
     
-    // 1. Deep shadow for 3D effect
-    g.setColour(juce::Colour(0x80000000));
-    g.fillEllipse(centre.x - radius + 2, centre.y - radius + 2, radius * 2, radius * 2);
-    
-    // 2. Outer metallic ring (chrome bezel) - always the same
-    juce::ColourGradient outerRing = juce::ColourGradient(
-        juce::Colour(0xFFB8C6DB), centre.x, centre.y - radius,     // Light chrome at top
-        juce::Colour(0xFF6C7B7F), centre.x, centre.y + radius,     // Darker chrome at bottom
-        false);
-    outerRing.addColour(0.3, juce::Colour(0xFFD4D4D4));            // Bright chrome highlight
-    outerRing.addColour(0.7, juce::Colour(0xFF8C8C8C));            // Chrome lowlight
-    
-    g.setGradientFill(outerRing);
-    g.fillEllipse(centre.x - radius, centre.y - radius, radius * 2, radius * 2);
-    
-    // 3. Main button surface (smaller than outer ring) - always metallic, never changes
-    auto buttonRadius = radius * 0.75f;
-    
-    // Button always looks the same - classic metallic finish
-    juce::ColourGradient buttonGradient = juce::ColourGradient(
-        juce::Colour(0xFFE8E8E8), centre.x, centre.y - buttonRadius,     // Light metallic at top
-        juce::Colour(0xFF999999), centre.x, centre.y + buttonRadius,     // Darker at bottom
-        false);
-    buttonGradient.addColour(0.5, juce::Colour(0xFFCCCCCC));            // Mid metallic
-    
-    g.setGradientFill(buttonGradient);
-    g.fillEllipse(centre.x - buttonRadius, centre.y - buttonRadius, buttonRadius * 2, buttonRadius * 2);
-    
-    // 4. Realistic brushed metal texture
-    g.setColour(juce::Colour(0x15FFFFFF));
-    for (int i = -static_cast<int>(buttonRadius * 0.8f); i < static_cast<int>(buttonRadius * 0.8f); i += 2)
+    if (buttonImage.isValid())
     {
-        auto y = centre.y + i;
-        auto halfWidth = std::sqrt(buttonRadius * buttonRadius - i * i) * 0.8f;
-        auto opacity = 0.6f - (std::abs(i) / buttonRadius) * 0.4f;
-        
-        g.setOpacity(opacity);
-        g.drawHorizontalLine(static_cast<int>(y), centre.x - halfWidth, centre.x + halfWidth);
-    }
-    g.setOpacity(1.0f);
-    
-    // 5. Concentric circles for machined look
-    for (float r = buttonRadius * 0.2f; r < buttonRadius * 0.9f; r += buttonRadius * 0.15f)
-    {
-        g.setColour(juce::Colour(0x12FFFFFF));
-        g.drawEllipse(centre.x - r, centre.y - r, r * 2, r * 2, 0.5f);
-    }
-    
-    // 6. Realistic edge highlight and shadow
-    // Top highlight
-    g.setColour(juce::Colour(0x40FFFFFF));
-    g.drawEllipse(centre.x - buttonRadius, centre.y - buttonRadius, buttonRadius * 2, buttonRadius * 2, 1.5f);
-    
-    // Bottom shadow
-    g.setColour(juce::Colour(0x30000000));
-    auto shadowOffset = buttonRadius * 0.1f;
-    g.drawEllipse(centre.x - buttonRadius + shadowOffset, centre.y - buttonRadius + shadowOffset, 
-                 buttonRadius * 2, buttonRadius * 2, 1.0f);
-    
-    // 7. Subtle wear marks (realistic pedal use)
-    g.setColour(juce::Colour(0x10000000));
-    for (int i = 0; i < 5; i++)
-    {
-        auto angle = juce::MathConstants<float>::pi * 0.4f + i * 0.2f;
-        auto wearRadius = buttonRadius * 0.6f;
-        auto x = centre.x + std::cos(angle) * wearRadius;
-        auto y = centre.y + std::sin(angle) * wearRadius;
-        auto size = 1.0f + i * 0.3f;
-        g.fillEllipse(x - size, y - size, size * 2, size * 2);
-    }
-    
-    // 8. Separate LED indicator positioned above the footswitch (like real pedals)
-    auto ledSize = radius * 0.25f;
-    auto ledX = centre.x - ledSize * 0.5f;
-    auto ledY = centre.y - radius * 1.3f; // Position above the footswitch
-    
-    // LED housing (black plastic housing like real 3mm/5mm LEDs)
-    g.setColour(juce::Colour(0xFF1A1A1A));
-    g.fillEllipse(ledX - ledSize * 0.2f, ledY - ledSize * 0.2f, ledSize * 1.4f, ledSize * 1.4f);
-    
-    if (isOn)
-    {
-        // LED ON state - bright red
-        
-        // Outer glow
-        g.setColour(juce::Colour(0x60FF3030));
-        g.fillEllipse(ledX - ledSize * 0.8f, ledY - ledSize * 0.8f, ledSize * 2.6f, ledSize * 2.6f);
-        
-        // Medium glow
-        g.setColour(juce::Colour(0x80FF4040));
-        g.fillEllipse(ledX - ledSize * 0.4f, ledY - ledSize * 0.4f, ledSize * 1.8f, ledSize * 1.8f);
-        
-        // LED core (bright red)
-        juce::ColourGradient ledGradient = juce::ColourGradient(
-            juce::Colour(0xFFFF6060), ledX, ledY - ledSize * 0.3f,     // Lighter red at top
-            juce::Colour(0xFFDD0000), ledX, ledY + ledSize * 0.7f,     // Darker red at bottom
-            false);
-        ledGradient.addColour(0.5, juce::Colour(0xFFFF3030));          // Bright red middle
-        
-        g.setGradientFill(ledGradient);
-        g.fillEllipse(ledX, ledY, ledSize, ledSize);
-        
-        // LED highlight (like real LED lens)
-        g.setColour(juce::Colour(0xAAFFAAAA)); // Slight white highlight
-        g.fillEllipse(ledX + ledSize * 0.2f, ledY + ledSize * 0.15f, ledSize * 0.3f, ledSize * 0.3f);
+        // Draw the power button image scaled to fit the button bounds
+        g.drawImage(buttonImage, bounds, 
+                   juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
     }
     else
     {
-        // LED OFF state - dark with subtle reflection
+        // Fallback: simple circle if images fail to load
+        auto centre = bounds.getCentre();
+        auto radius = juce::jmin(bounds.getWidth(), bounds.getHeight()) / 2.0f - 2.0f;
         
-        // Dark LED (off)
-        g.setColour(juce::Colour(0xFF2A0A0A)); // Very dark red
-        g.fillEllipse(ledX, ledY, ledSize, ledSize);
+        // Draw simple circle with color based on state
+        g.setColour(isOn ? juce::Colour(0xFF00FF00) : juce::Colour(0xFF666666));
+        g.fillEllipse(centre.x - radius, centre.y - radius, radius * 2, radius * 2);
         
-        // Subtle reflection on dark LED
-        g.setColour(juce::Colour(0x40FFFFFF));
-        g.fillEllipse(ledX + ledSize * 0.2f, ledY + ledSize * 0.15f, ledSize * 0.25f, ledSize * 0.25f);
+        // Draw border
+        g.setColour(juce::Colour(0xFFCCCCCC));
+        g.drawEllipse(centre.x - radius, centre.y - radius, radius * 2, radius * 2, 2.0f);
     }
-    
-    // LED housing rim (like real LED components)
-    g.setColour(juce::Colour(0xFF333333));
-    g.drawEllipse(ledX - ledSize * 0.1f, ledY - ledSize * 0.1f, ledSize * 1.2f, ledSize * 1.2f, 1.0f);
 }
 
 //==============================================================================
@@ -294,12 +200,7 @@ WoolyMammothAudioProcessorEditor::WoolyMammothAudioProcessorEditor (WoolyMammoth
     setSize (HarmonsterLayout::PLUGIN_WIDTH, HarmonsterLayout::PLUGIN_HEIGHT);
     setLookAndFeel(&woolyLF);
 
-    // Setup title label
-    titleLabel.setText ("THE HARMONSTER", juce::dontSendNotification);
-    titleLabel.setFont (juce::Font (juce::FontOptions ("Arial", 24.0f, juce::Font::bold)));
-    titleLabel.setColour (juce::Label::textColourId, juce::Colour(0xFFFF8C00)); // Orange
-    titleLabel.setJustificationType (juce::Justification::centred);
-    addAndMakeVisible (&titleLabel);
+    // Title label removed - new background includes "THE HARMONSTER" text
 
     // Setup sliders with tooltips
     auto setupSlider = [this](juce::Slider& slider, const juce::String& tooltip, double defaultValue)
@@ -360,12 +261,14 @@ WoolyMammothAudioProcessorEditor::~WoolyMammothAudioProcessorEditor()
 
 void WoolyMammothAudioProcessorEditor::sliderValueChanged (juce::Slider* slider)
 {
+    (void)slider; // Suppress unused parameter warning
     // All parameter updates are handled by the parameter attachments
     // This method can be left empty or used for additional UI updates
 }
 
 void WoolyMammothAudioProcessorEditor::comboBoxChanged (juce::ComboBox* comboBoxThatHasChanged)
 {
+    (void)comboBoxThatHasChanged; // Suppress unused parameter warning
     // No combo boxes in HARMONSTER design
 }
 
@@ -373,14 +276,14 @@ void WoolyMammothAudioProcessorEditor::paint (juce::Graphics& g)
 {
     auto bounds = getLocalBounds();
     
-    // Load the HARMONSTER background image from BinaryData
-    auto backgroundImage = juce::ImageCache::getFromMemory(BinaryData::harmonster_puringerdsp_png, 
-                                                          BinaryData::harmonster_puringerdsp_pngSize);
+    // Load the HARMONSTER custom background image from BinaryData
+    auto backgroundImage = juce::ImageCache::getFromMemory(BinaryData::harmonster_custom_ui_png, 
+                                                          BinaryData::harmonster_custom_ui_pngSize);
     
     if (backgroundImage.isValid())
     {
         // Draw the HARMONSTER background image scaled to fit the plugin window
-        // Scale from original 1024x1536 to current window size (360x540)
+        // Scale from original to current window size (360x540)
         g.drawImage(backgroundImage, bounds.toFloat(), 
                    juce::RectanglePlacement::centred | juce::RectanglePlacement::fillDestination);
     }
@@ -397,7 +300,7 @@ void WoolyMammothAudioProcessorEditor::paint (juce::Graphics& g)
         
         g.setFont(juce::Font(juce::FontOptions(12.0f)));
         auto messageArea = bounds.removeFromBottom(60);
-        g.drawText("Background image could not be loaded from BinaryData", 
+        g.drawText("Custom background image could not be loaded from BinaryData", 
                    messageArea, juce::Justification::centred);
     }
 }
